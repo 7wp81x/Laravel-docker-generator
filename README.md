@@ -166,6 +166,63 @@ Then open `http://localhost:8080` in your browser.
 | Database driver | `.env.example` -> `DB_CONNECTION` | sqlite |
 | Redis | `.env.example` drivers, or `predis/predis` in `composer.json` | not included |
 
+## Practical usage: deploying to Render
+
+This generator grew out of deploying Laravel projects to
+[Render](https://render.com), so here is the concrete workflow. The same
+image also works on other Docker hosts (Fly.io, Railway, a plain VPS, etc),
+since it is just a standard Docker image with no Render-only code baked in.
+The notes below are specifically about things Render expects.
+
+### 1. Generate and commit the files
+
+```bash
+./generate.sh .
+git add Dockerfile docker/
+git commit -m "Add Docker setup"
+git push
+```
+
+### 2. Create a new Web Service on Render
+
+* New -> Web Service -> connect your repo
+* Runtime: **Docker** (Render will detect the `Dockerfile` automatically)
+* You do not need to set a build command or start command, since both are
+  already defined inside the Dockerfile
+
+### 3. Set environment variables in the Render dashboard
+
+At minimum you need:
+
+| Variable | Notes |
+|---|---|
+| `APP_KEY` | Generate locally with `php artisan key:generate --show` and paste the value. Do this once and keep it fixed, do not regenerate it on every deploy or you will invalidate sessions and encrypted data. |
+| `APP_ENV` | `production` |
+| `APP_DEBUG` | `false` |
+| `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Only needed if using MySQL or Postgres. Point these at Render's own managed Postgres, or an external provider like Supabase. |
+
+You do **not** need to set `PORT` yourself. Render injects it automatically,
+and `docker/start.sh` already reads `$PORT` and configures Nginx to listen on
+it.
+
+### 4. About the filesystem (important if you picked SQLite)
+
+Render's free and starter web services use an ephemeral filesystem. That
+means anything written inside the container, including a SQLite database
+file, disappears on every redeploy or restart.
+
+* If your app needs data to persist, use Postgres or MySQL instead of
+  SQLite. Render's built in Postgres works fine, or use an external database.
+* If you specifically need SQLite to persist, attach a
+  [Render Disk](https://render.com/docs/disks) and point `DB_DATABASE` at a
+  path inside that mounted disk.
+
+### 5. Deploy and check logs
+
+Render streams container logs directly in its dashboard. If something goes
+wrong on boot, check there first, since `start.sh` prints warnings for a
+missing `APP_KEY` or a failed migration instead of silently failing.
+
 ## Customizing after generation
 
 The generated files are a normal starting point, not a locked black box. Feel
